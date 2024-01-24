@@ -3,6 +3,24 @@ import { apiError } from "../utils/apiError.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { apiResponse } from "../utils/apiResponse.js";
+
+const generateAccessAndRefreshTokens = async (userId) => {
+  try {
+    const user = await User.findById(userId);
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+    //store refresh token in database
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+    return { accessToken, refreshToken };
+  } catch (error) {
+    throw new apiError(
+      500,
+      "Something went wrong while generating refresh & access tokens"
+    );
+  }
+};
+
 const registerUser = asyncHandler(async (req, res) => {
   //get user details from fronted
   //validation - check for no empyty fields also
@@ -68,4 +86,81 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new apiResponse(200, createdUser, "User registered successfully"));
 });
 
-export { registerUser };
+const loginUser = asyncHandler(async (req, res) => {
+  //req body -> data
+  //check for username or email
+  //find the user
+  //password check
+  //access & refresh token sent to user
+  //send in cookies (secure)
+  //send a response for successfully login
+
+  const { email, username, password } = req.body;
+  if (!username && !email) {
+    throw new apiError(400, "Username or email is required");
+  }
+
+  const user = await User.findOne({
+    $or: [{ email }, { username }],
+  });
+
+  if (!user) {
+    throw new apiError(404, "User does not exists");
+  }
+  //this "user" instance will have access to all our methods, not the "User"
+  const isPasswordValid = await user.isPasswordCorrect(password);
+  if (!isPasswordValid) {
+    throw new apiError(401, "Invalid user credentials");
+  }
+  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(
+    user._id
+  );
+
+  const loggedInUser = User.findById(user._id).select(
+    "-password -refreshToken"
+  );
+
+  const options = {
+    httpOnly: true, //these both lines ensure that, these cookies are only modified by server, frontend can only see the cookied but not modify them
+    secure: true,
+  };
+
+  return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+      new apiResponse(
+        200,
+        { user: loggedInUser, refreshToken, accessToken },
+        "User logged in successfully"
+      ) //jab cookies me send kar diye the to yaha pe send karne ki kya need hai? bcs kabhi kabhi user apne aap usko set karna chahta hoga, shayad kisi reason se localstorage me store karna chah rha ho ya fir mobile app develop kar rha ho
+    );
+});
+
+const logoutUser = asyncHandler(async (req, res) => {
+  //remove cookies
+  //remove refreshToken from the user DB
+  await User.findByIdAndUpadte(
+    req.user._id,
+    {
+      $set: {
+        refreshToken: undefined,
+      },
+    },
+    {
+      new: true, //return me jo response milega usme updated values milegi
+    }
+  );
+
+  const options = {
+    httpOnly: true,
+    secure: true,
+  };
+  return res
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new apiResponse(200, {}, "User logged out"));
+});
+export { registerUser, loginUser, logoutUser };
