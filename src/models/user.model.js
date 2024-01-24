@@ -51,7 +51,7 @@ const userSchmea = new Schema(
 //pre hook is provided by mongoose to do some task just before doing something like sending data to the databse
 userSchmea.pre("save", async function (next) {
   if (this.isModified("password")) return next(); //as we dont want it to again and again encrypt the password whenever we are chaning some other field like avatar,etc in our user schema and saving it
-  this.password = bcrypt.hash(this.password, 10); //hashrounds
+  this.password = await bcrypt.hash(this.password, 10); //hashrounds
   next();
 }); //there are many events where we can call this pre hook like validate,save,updateOne, remove, deleteOne (check at docs of middleware of mongoose)
 //pre ke andar wale callback me avoid using arrow function because in that we dont have the context of "this", because here the save event is working on userSchema so we should have access to that
